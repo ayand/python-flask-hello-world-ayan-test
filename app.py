@@ -17,7 +17,6 @@ def save_user_data(username):
     print(f"Received request to save user data for {username}")
     data = request.get_json()
     date_of_birth = data["dateOfBirth"]
-    occupation = data["occupation"]
     
     if not username.isalpha():
         return jsonify({"error": "Username must contain only letters"}), 400
@@ -35,8 +34,7 @@ def save_user_data(username):
         table.put_item(
             Item={
                 'username': username,
-                'date_of_birth': date_of_birth,
-                'occupation': occupation
+                'date_of_birth': date_of_birth
             }
         )
         return "", 204
@@ -54,7 +52,6 @@ def get_hello_message(username):
             return jsonify({"message": f"User {username} not found"}), 404
         
         date_of_birth = datetime.strptime(item['date_of_birth'], "%Y-%m-%d")
-        occupation = item['occupation']
         today = datetime.today()
         this_year_birthday = datetime(today.year, date_of_birth.month, date_of_birth.day)
         
@@ -66,9 +63,9 @@ def get_hello_message(username):
         days_until_birthday = (next_birthday - today).days + 1
 
         if days_until_birthday == 365:
-            message = f"Hello, {username}! Happy birthday! You are a {occupation}."
+            message = f"Hello, {username}! Happy birthday!"
         else:
-            message = f"Hello, {username}! Your birthday is in {days_until_birthday} day(s). You are a {occupation}."
+            message = f"Hello, {username}! Your birthday is in {days_until_birthday} day(s)."
         
         return jsonify({"message": message}), 200
 
