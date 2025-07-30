@@ -365,7 +365,7 @@ resource "aws_cloudwatch_log_group" "ecs_logs" {
 }
 
 data "aws_ecr_repository" "ecr" {
-  name = "flask-docker-app"
+  name = "flask-docker-app-ayan"
 }
 
 

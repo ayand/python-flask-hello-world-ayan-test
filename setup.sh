@@ -1,6 +1,6 @@
 #!/bin/sh 
 
-ecr_repo="flask-docker-app"
+ecr_repo="flask-docker-app-ayan"
 aws_account_id=$(aws sts get-caller-identity --query Account --output text)
 region=$(aws configure get region)
 # login and create ecr repository 
