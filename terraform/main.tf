@@ -33,46 +33,50 @@ resource "aws_iam_role_policy" "ecs_service_policy" {
   })
 }
 
-resource "aws_iam_role" "ec2_role" {
-  name                = "ec2_role"
-  path                = "/"
-  assume_role_policy  = data.aws_iam_policy_document.ec2_role_pd.json
-}
+# Fargate Task Execution Role
+resource "aws_iam_role" "ecs_task_execution_role" {
+  name = "ecs-task-execution-role"
 
-resource "aws_iam_role_policy_attachment" "ec2_ssm_policy" {
-  role       = aws_iam_role.ec2_role.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM"
-}
-
-resource "aws_iam_role_policy" "ec2_ecs_service" {
-  name = "ecs-service"
-  role = aws_iam_role.ec2_role.id
-
-  policy = jsonencode({
+  assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Action = [
-          "ec2:DescribeTags",
-          "ecs:CreateCluster",
-          "ecs:DeregisterContainerInstance",
-          "ecs:DiscoverPollEndpoint",
-          "ecs:Poll",
-          "ecs:RegisterContainerInstance",
-          "ecs:StartTelemetrySession",
-          "ecs:UpdateContainerInstancesState",
-          "ecs:Submit*"
-        ]
-        Effect   = "Allow"
-        Resource = "*"
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
       }
     ]
   })
 }
 
-resource "aws_iam_role_policy" "ec2_dynamo_access" {
+resource "aws_iam_role_policy_attachment" "ecs_task_execution_role_policy" {
+  role       = aws_iam_role.ecs_task_execution_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# Fargate Task Role
+resource "aws_iam_role" "ecs_task_role" {
+  name = "ecs-task-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "ecs_task_dynamo_access" {
   name = "dynamo-access"
-  role = aws_iam_role.ec2_role.id
+  role = aws_iam_role.ecs_task_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -98,26 +102,7 @@ resource "aws_iam_role_policy" "ec2_dynamo_access" {
   })
 }
 
-resource "aws_iam_role_policy" "ec2_ecr_access" {
-  name = "ecr-access"
-  role = aws_iam_role.ec2_role.id
 
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = [
-          "ecr:BatchCheckLayerAvailability",
-          "ecr:BatchGetImage",
-          "ecr:GetDownloadUrlForLayer",
-          "ecr:GetAuthorizationToken"
-        ]
-        Effect   = "Allow"
-        Resource = "*"
-      }
-    ]
-  })
-}
 
 resource "aws_iam_role" "autoscaling_role" {
   name               = "autoscaling_role"
@@ -378,42 +363,37 @@ data "aws_ecr_repository" "ecr" {
 }
 
 
-# Create an ECS task definition.
+# Create an ECS task definition for Fargate.
 resource "aws_ecs_task_definition" "ecs_task_definition" {
-  family                = "${var.service_name}-ecs-demo-app"
-  container_definitions = <<DEFINITION
-[
-  {
-    "name": "demo-app",
-    "cpu": 10,
-    "image": "${data.aws_ecr_repository.ecr.repository_url}",
-    "essential": true,
-    "memory": 300,
-    "logConfiguration": {
-      "logDriver": "awslogs",
-      "options": {
-        "awslogs-group": "ecs-logs",
-        "awslogs-region": "us-east-1",
-        "awslogs-stream-prefix": "ecs-demo-app"
+  family                   = "${var.service_name}-ecs-demo-app"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.ecs_task_execution_role.arn
+  task_role_arn            = aws_iam_role.ecs_task_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name  = "demo-app"
+      image = "${data.aws_ecr_repository.ecr.repository_url}"
+      essential = true
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs_logs.name
+          "awslogs-region"        = "us-east-1"
+          "awslogs-stream-prefix" = "ecs-demo-app"
+        }
       }
-    },
-    "mountPoints": [
-      {
-        "containerPath": "/usr/local/apache2/htdocs",
-        "sourceVolume": "my-vol"
-      }
-    ],
-    "portMappings": [
-      {
-        "containerPort": 5000
-      }
-    ]
-  }
-]
-DEFINITION
-  volume {
-    name = "my-vol"
-  }
+      portMappings = [
+        {
+          containerPort = 5000
+          protocol      = "tcp"
+        }
+      ]
+    }
+  ])
 }
 
 # Create the Application Load Balancer.
@@ -427,12 +407,13 @@ resource "aws_lb" "main" {
   enable_deletion_protection = false
 }
 
-# Create the ALB target group.
+# Create the ALB target group for Fargate.
 resource "aws_lb_target_group" "ecs_rest_api_tg" {
-  name     = "ecs-tg"
-  port     = 5000
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  name        = "ecs-tg"
+  port        = 5000
+  protocol    = "HTTP"
+  target_type = "ip"
+  vpc_id      = aws_vpc.main.id
   health_check {
     path                = "/health"
     protocol            = "HTTP"
@@ -460,54 +441,32 @@ resource "aws_ecs_cluster" "ecs_cluster" {
   name = "ecs_cluster"
 }
 
-# Create the ECS service.
+# Create the ECS service for Fargate.
 resource "aws_ecs_service" "service" {
   name            = var.service_name
   cluster         = aws_ecs_cluster.ecs_cluster.id
   task_definition = aws_ecs_task_definition.ecs_task_definition.arn
   desired_count   = var.desired_capacity
-  iam_role        = aws_iam_role.ecs_service_role.arn
+  launch_type     = "FARGATE"
+  platform_version = "LATEST"
   depends_on      = [aws_lb_listener.alb_listener]
+
+  network_configuration {
+    subnets          = [aws_subnet.private_1.id, aws_subnet.private_2.id]
+    security_groups  = [aws_security_group.ecs_sg.id]
+    assign_public_ip = false
+  }
+
   load_balancer {
+    target_group_arn = aws_lb_target_group.ecs_rest_api_tg.arn
     container_name   = "demo-app"
     container_port   = 5000
-    target_group_arn = aws_lb_target_group.ecs_rest_api_tg.arn
   }
 }
 
-# Create an EC2 instance profile.
-resource "aws_iam_instance_profile" "ec2_instance_profile" {
-  name = "ec2_instance_profile"
-  role = aws_iam_role.ec2_role.name
-}
 
-# Create an EC2 Launch Configuration for the ECS cluster.
-resource "aws_launch_configuration" "ecs_launch_config" {
-  image_id             = data.aws_ami.latest_ecs_ami.image_id
-  security_groups      = [aws_security_group.ecs_sg.id]
-  instance_type        = var.instance_type
-  iam_instance_profile = aws_iam_instance_profile.ec2_instance_profile.name
-  user_data            = "#!/bin/bash\necho ECS_CLUSTER=ecs_cluster >> /etc/ecs/ecs.config"
-}
 
-# Create the ECS autoscaling group.
-resource "aws_autoscaling_group" "ecs_asg" {
-  name                 = "ecs-asg"
-  vpc_zone_identifier  = [aws_subnet.private_1.id, aws_subnet.private_2.id]
-  launch_configuration = aws_launch_configuration.ecs_launch_config.name
 
-  desired_capacity = var.desired_capacity
-  min_size         = 1
-  max_size         = var.maximum_capacity
-}
-
-# Create an autoscaling policy.
-resource "aws_autoscaling_policy" "ecs_infra_scale_out_policy" {
-  name                   = "ecs_infra_scale_out_policy"
-  scaling_adjustment     = 1
-  adjustment_type        = "ChangeInCapacity"
-  autoscaling_group_name = aws_autoscaling_group.ecs_asg.name
-}
 
 # Create an application autoscaling target.
 resource "aws_appautoscaling_target" "ecs_service_scaling_target" {
@@ -576,23 +535,7 @@ resource "aws_cloudwatch_metric_alarm" "ecs_service_cpu_scale_out_alarm" {
   alarm_actions = [aws_appautoscaling_policy.ecs_service_cpu_scale_out_policy.arn]
 }
 
-# Create a CloudWatch alarm for ECS service CPU scale out.
-resource "aws_cloudwatch_metric_alarm" "ecs_infra_cpu_alarm_high" {
-  alarm_name          = "CPU utilization greater than 50%"
-  comparison_operator = "GreaterThanThreshold"
-  evaluation_periods  = "1"
-  metric_name         = "CPUUtilization"
-  namespace           = "AWS/EC2"
-  period              = "60"
-  statistic           = "Average"
-  threshold           = "10"
-  alarm_description   = "Alarm if CPU too high or metric disappears indicating instance is down"
-  dimensions = {
-    "Name"  = "AutoScalingGroupName"
-    "Value" = aws_autoscaling_group.ecs_asg.name
-  }
-  alarm_actions = [aws_autoscaling_policy.ecs_infra_scale_out_policy.arn]
-}
+
 
 # Create a DynamoDB table.
 resource "aws_dynamodb_table" "user_table" {

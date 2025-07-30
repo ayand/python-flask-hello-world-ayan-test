@@ -14,6 +14,7 @@ def health_check():
 
 @app.route("/hello/<username>", methods=["PUT"])
 def save_user_data(username):
+    print(f"Received request to save user data for {username}")
     data = request.get_json()
     date_of_birth = data["dateOfBirth"]
     occupation = data["occupation"]
@@ -44,6 +45,7 @@ def save_user_data(username):
 
 @app.route("/hello/<username>", methods=["GET"])
 def get_hello_message(username):
+    print(f"Received request to get hello message for {username}")
     table = dynamodb.Table(table_name)
     try:
         response = table.get_item(Key={'username': username})
