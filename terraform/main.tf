@@ -7,138 +7,147 @@ resource "aws_iam_role" "ecs_service_role" {
   name               = "ecs_service_role"
   path               = "/"
   assume_role_policy = data.aws_iam_policy_document.ecs_service_role_pd.json
+}
 
-  inline_policy {
-    name = "ecs-service"
+resource "aws_iam_role_policy" "ecs_service_policy" {
+  name = "ecs-service"
+  role = aws_iam_role.ecs_service_role.id
 
-    policy = jsonencode({
-      Version = "2012-10-17"
-      Statement = [
-        {
-          Action = [
-            "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
-            "elasticloadbalancing:DeregisterTargets",
-            "elasticloadbalancing:Describe*",
-            "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
-            "elasticloadbalancing:RegisterTargets",
-            "ec2:Describe*",
-            "ec2:AuthorizeSecurityGroupIngress"
-          ]
-          Effect   = "Allow"
-          Resource = "*"
-        }
-      ]
-    })
-  }
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
+          "elasticloadbalancing:DeregisterTargets",
+          "elasticloadbalancing:Describe*",
+          "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
+          "elasticloadbalancing:RegisterTargets",
+          "ec2:Describe*",
+          "ec2:AuthorizeSecurityGroupIngress"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role" "ec2_role" {
   name                = "ec2_role"
   path                = "/"
   assume_role_policy  = data.aws_iam_policy_document.ec2_role_pd.json
-  managed_policy_arns = ["arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM"]
+}
 
-  inline_policy {
-    name = "ecs-service"
+resource "aws_iam_role_policy_attachment" "ec2_ssm_policy" {
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforSSM"
+}
 
-    policy = jsonencode({
-      Version = "2012-10-17"
-      Statement = [
-        {
-          Action = [
-            "ec2:DescribeTags",
-            "ecs:CreateCluster",
-            "ecs:DeregisterContainerInstance",
-            "ecs:DiscoverPollEndpoint",
-            "ecs:Poll",
-            "ecs:RegisterContainerInstance",
-            "ecs:StartTelemetrySession",
-            "ecs:UpdateContainerInstancesState",
-            "ecs:Submit*"
-          ]
-          Effect   = "Allow"
-          Resource = "*"
-        }
-      ]
-    })
-  }
+resource "aws_iam_role_policy" "ec2_ecs_service" {
+  name = "ecs-service"
+  role = aws_iam_role.ec2_role.id
 
-  inline_policy {
-    name = "dynamo-access"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ec2:DescribeTags",
+          "ecs:CreateCluster",
+          "ecs:DeregisterContainerInstance",
+          "ecs:DiscoverPollEndpoint",
+          "ecs:Poll",
+          "ecs:RegisterContainerInstance",
+          "ecs:StartTelemetrySession",
+          "ecs:UpdateContainerInstancesState",
+          "ecs:Submit*"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
 
-    policy = jsonencode({
-      Version = "2012-10-17"
-      Statement = [
-        {
-          Action = [
-            "logs:CreateLogStream",
-            "logs:PutLogEvents",
-            "dynamodb:Query",
-            "dynamodb:Scan",
-            "dynamodb:GetItem",
-            "dynamodb:PutItem",
-            "dynamodb:UpdateItem",
-            "dynamodb:DeleteItem"
-          ]
-          Effect = "Allow"
-          Resource = [
-            "arn:aws:logs:us-east-1:${local.account_id}:*/*",
-            "arn:aws:dynamodb:us-east-1:${local.account_id}:*/*"
-          ]
-        }
-      ]
-    })
-  }
+resource "aws_iam_role_policy" "ec2_dynamo_access" {
+  name = "dynamo-access"
+  role = aws_iam_role.ec2_role.id
 
-  inline_policy {
-    name = "ecr-access"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "logs:CreateLogStream",
+          "logs:PutLogEvents",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem"
+        ]
+        Effect = "Allow"
+        Resource = [
+          "arn:aws:logs:us-east-1:${local.account_id}:*/*",
+          "arn:aws:dynamodb:us-east-1:${local.account_id}:*/*"
+        ]
+      }
+    ]
+  })
+}
 
-    policy = jsonencode({
-      Version = "2012-10-17"
-      Statement = [
-        {
-          Action = [
-            "ecr:BatchCheckLayerAvailability",
-            "ecr:BatchGetImage",
-            "ecr:GetDownloadUrlForLayer",
-            "ecr:GetAuthorizationToken"
-          ]
-          Effect   = "Allow"
-          Resource = "*"
-        }
-      ]
-    })
-  }
+resource "aws_iam_role_policy" "ec2_ecr_access" {
+  name = "ecr-access"
+  role = aws_iam_role.ec2_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:BatchGetImage",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:GetAuthorizationToken"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role" "autoscaling_role" {
   name               = "autoscaling_role"
   path               = "/"
   assume_role_policy = data.aws_iam_policy_document.autoscaling_pd.json
+}
 
-  inline_policy {
-    name = "service-autoscaling"
+resource "aws_iam_role_policy" "autoscaling_policy" {
+  name = "service-autoscaling"
+  role = aws_iam_role.autoscaling_role.id
 
-    policy = jsonencode({
-      Version = "2012-10-17"
-      Statement = [
-        {
-          Action = [
-            "ecs:DescribeServices",
-            "ecs:UpdateService",
-            "cloudwatch:PutMetricAlarm",
-            "cloudwatch:DescribeAlarms",
-            "cloudwatch:DeleteAlarms"
-          ]
-          Effect = "Allow"
-          Resource = [
-            "arn:aws:ecs:us-east-1:${local.account_id}:*/*",
-            "arn:aws:cloudwatch:us-east-1:${local.account_id}:*/*"
-          ]
-        }
-      ]
-    })
-  }
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = [
+          "ecs:DescribeServices",
+          "ecs:UpdateService",
+          "cloudwatch:PutMetricAlarm",
+          "cloudwatch:DescribeAlarms",
+          "cloudwatch:DeleteAlarms"
+        ]
+        Effect = "Allow"
+        Resource = [
+          "arn:aws:ecs:us-east-1:${local.account_id}:*/*",
+          "arn:aws:cloudwatch:us-east-1:${local.account_id}:*/*"
+        ]
+      }
+    ]
+  })
 }
 
 # Create a VPC.
@@ -189,12 +198,12 @@ resource "aws_subnet" "private_2" {
 # A NAT gateway is required for the private subnet.
 # Configure EIP for the first NAT Gateway.
 resource "aws_eip" "nat_1" {
-  vpc = true
+  domain = "vpc"
 }
 
 # configure EIP for the second NAT gateway.
 resource "aws_eip" "nat_2" {
-  vpc = true
+  domain = "vpc"
 }
 
 # Create the first NAT gateway.
