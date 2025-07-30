@@ -376,7 +376,7 @@ resource "aws_ecs_task_definition" "ecs_task_definition" {
   container_definitions = jsonencode([
     {
       name  = "demo-app"
-      image = "${data.aws_ecr_repository.ecr.repository_url}"
+      image = "${data.aws_ecr_repository.ecr.repository_url}:latest"
       essential = true
       logConfiguration = {
         logDriver = "awslogs"
@@ -450,6 +450,10 @@ resource "aws_ecs_service" "service" {
   launch_type     = "FARGATE"
   platform_version = "LATEST"
   depends_on      = [aws_lb_listener.alb_listener]
+
+  deployment_maximum_percent         = 200
+  deployment_minimum_healthy_percent = 100
+  health_check_grace_period_seconds  = 60
 
   network_configuration {
     subnets          = [aws_subnet.private_1.id, aws_subnet.private_2.id]

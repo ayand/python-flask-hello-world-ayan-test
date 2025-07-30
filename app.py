@@ -2,8 +2,20 @@ from flask import Flask, request, jsonify
 import boto3
 from botocore.exceptions import ClientError
 from datetime import datetime
+import logging
+import sys
+
+# Configure logging to output to stdout/stderr for CloudWatch
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 
 app = Flask(__name__)
+app.logger.setLevel(logging.INFO)
 
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 table_name = 'users'
@@ -14,7 +26,7 @@ def health_check():
 
 @app.route("/hello/<username>", methods=["PUT"])
 def save_user_data(username):
-    print(f"Received request to save user data for {username}")
+    app.logger.info(f"Received request to save user data for {username}")
     data = request.get_json()
     date_of_birth = data["dateOfBirth"]
     
@@ -37,18 +49,21 @@ def save_user_data(username):
                 'date_of_birth': date_of_birth
             }
         )
+        app.logger.info(f"Successfully saved user data for {username}")
         return "", 204
     except ClientError as e:
+        app.logger.error(f"Error saving user data for {username}: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/hello/<username>", methods=["GET"])
 def get_hello_message(username):
-    print(f"Received request to get hello message for {username}")
+    app.logger.info(f"Received request to get hello message for {username}")
     table = dynamodb.Table(table_name)
     try:
         response = table.get_item(Key={'username': username})
         item = response.get('Item')
         if not item:
+            app.logger.warning(f"User {username} not found")
             return jsonify({"message": f"User {username} not found"}), 404
         
         date_of_birth = datetime.strptime(item['date_of_birth'], "%Y-%m-%d")
@@ -67,9 +82,11 @@ def get_hello_message(username):
         else:
             message = f"Hello, {username}! Your birthday is in {days_until_birthday} day(s)."
         
+        app.logger.info(f"Generated birthday message for {username}: {message}")
         return jsonify({"message": message}), 200
 
     except ClientError as e:
+        app.logger.error(f"Error retrieving user data for {username}: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
